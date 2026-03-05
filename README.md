@@ -91,7 +91,7 @@ Shutterstock-specific mapping in current defaults:
 Dreamstime-specific mapping in current defaults:
 - Uses official `Image_spreadsheet_template.xls` column order.
 - `Filename`, `Image Name`, `Description`, and `keywords` are filled from generated metadata.
-- `Category 1/2/3` currently default to `0` (no category selected yet).
+- `Category 1/2/3` are auto-assigned numeric IDs based on the Dreamstime `Image Legend` category list (up to 3 IDs).
 - Licensing/editorial flags default to `0`; document ID fields remain empty.
 
 ## Behavior Notes

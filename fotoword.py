@@ -78,6 +78,50 @@ SHUTTERSTOCK_CATEGORIES = [
     "Transportation",
     "Vintage",
 ]
+DREAMSTIME_CATEGORY_RULES = [
+    (168, ["animal", "bird", "duck", "dog", "cat", "wildlife", "pet", "insect"]),
+    (31, ["bird"]),
+    (30, ["pet"]),
+    (146, ["landscape", "scenery", "vista", "nature"]),
+    (16, ["river", "lake", "stream"]),
+    (19, ["ocean", "sea", "coast"]),
+    (15, ["mountain"]),
+    (25, ["flower", "garden", "blossom"]),
+    (12, ["plant", "tree", "vegetation"]),
+    (171, ["water"]),
+    (123, ["active", "activity"]),
+    (162, ["portrait", "headshot"]),
+    (119, ["child", "children", "kid"]),
+    (117, ["man", "male"]),
+    (116, ["woman", "female"]),
+    (118, ["family", "families"]),
+    (75, ["business people", "office people"]),
+    (80, ["finance", "money", "banking"]),
+    (79, ["communications", "meeting", "presentation"]),
+    (71, ["building", "architecture"]),
+    (73, ["interior", "indoor", "room"]),
+    (72, ["outdoor"]),
+    (70, ["landmark"]),
+    (127, ["food", "meal", "dish", "cuisine", "eat"]),
+    (137, ["fruit", "vegetable"]),
+    (157, ["sport", "fitness", "yoga", "soccer", "basketball", "recreation"]),
+    (98, ["transport", "car", "bus", "train", "plane", "boat", "vehicle"]),
+    (105, ["computer", "laptop", "desktop", "software"]),
+    (104, ["telecommunications", "phone", "mobile"]),
+    (210, ["artificial intelligence", "ai"]),
+    (92, ["medical", "health", "healthcare", "doctor", "hospital"]),
+    (150, ["education", "school", "student", "classroom"]),
+    (128, ["religion", "religious", "spiritual", "faith"]),
+    (112, ["background", "texture", "pattern"]),
+    (199, ["web background", "web texture"]),
+    (145, ["object", "still life", "item"]),
+    (152, ["retro", "vintage"]),
+    (61, ["travel", "destination", "tourism", "vacation"]),
+    (190, ["christmas"]),
+    (193, ["easter"]),
+    (192, ["halloween"]),
+    (189, ["new year"]),
+]
 
 
 class FotowordError(Exception):
@@ -157,6 +201,24 @@ def infer_shutterstock_categories(title: str, description: str, keywords_field: 
     if not matches:
         matches = ["Miscellaneous"]
     return ", ".join(matches[:2])
+
+
+def infer_dreamstime_categories(title: str, description: str, keywords_field: str) -> Tuple[str, str, str]:
+    text = f"{title} {description} {keywords_field}".lower()
+    matches: List[str] = []
+    for cat_id, needles in DREAMSTIME_CATEGORY_RULES:
+        if any(needle in text for needle in needles):
+            value = str(cat_id)
+            if value not in matches:
+                matches.append(value)
+        if len(matches) >= 3:
+            break
+
+    if not matches:
+        matches = ["145"]  # Objects -> Other
+    while len(matches) < 3:
+        matches.append("0")
+    return matches[0], matches[1], matches[2]
 
 
 def fit_description_length(text: str) -> str:
@@ -628,13 +690,14 @@ def platform_row(
         }
     elif platform_key == "dreamstime":
         # Matches official Dreamstime spreadsheet header schema.
+        c1, c2, c3 = infer_dreamstime_categories(title, description, keywords)
         base = {
             "filename": filename,
             "image name": title,
             "description": description,
-            "category 1": "0",
-            "category 2": "0",
-            "category 3": "0",
+            "category 1": c1,
+            "category 2": c2,
+            "category 3": c3,
             "keywords": keywords,
             "free": "0",
             "w-el": "0",
