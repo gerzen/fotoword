@@ -50,6 +50,34 @@ ADOBE_CATEGORIES = {
     20: "Transport",
     21: "Travel",
 }
+SHUTTERSTOCK_CATEGORIES = [
+    "Abstract",
+    "Animals/Wildlife",
+    "Arts",
+    "Backgrounds/Textures",
+    "Beauty/Fashion",
+    "Buildings/Landmarks",
+    "Business/Finance",
+    "Celebrities",
+    "Education",
+    "Food and Drink",
+    "Healthcare/Medical",
+    "Holidays",
+    "Industrial",
+    "Interiors",
+    "Miscellaneous",
+    "Nature",
+    "Objects",
+    "Parks/Outdoor",
+    "People",
+    "Religion",
+    "Science",
+    "Signs/Symbols",
+    "Sports/Recreation",
+    "Technology",
+    "Transportation",
+    "Vintage",
+]
 
 
 class FotowordError(Exception):
@@ -89,6 +117,46 @@ def infer_category(title: str, description: str, keywords_field: str) -> str:
         if any(needle in text for needle in needles):
             return str(category_id)
     return "11"
+
+
+def infer_shutterstock_categories(title: str, description: str, keywords_field: str) -> str:
+    text = f"{title} {description} {keywords_field}".lower()
+    rules = [
+        ("Animals/Wildlife", ["animal", "bird", "duck", "dog", "cat", "wildlife", "pet", "insect"]),
+        ("People", ["person", "people", "portrait", "man", "woman", "child", "face", "hand"]),
+        ("Food and Drink", ["food", "meal", "dish", "eat", "drink", "beverage", "coffee", "tea"]),
+        ("Nature", ["nature", "plant", "flower", "forest", "lake", "mountain", "snow", "water"]),
+        ("Parks/Outdoor", ["outdoor", "park", "camp", "hiking", "garden", "playground"]),
+        ("Buildings/Landmarks", ["building", "architecture", "landmark", "temple", "bridge"]),
+        ("Interiors", ["interior", "room", "kitchen", "bedroom", "office interior"]),
+        ("Business/Finance", ["business", "finance", "money", "office", "corporate"]),
+        ("Technology", ["technology", "computer", "smartphone", "device", "ai", "virtual reality"]),
+        ("Science", ["science", "research", "lab", "medical", "chemistry"]),
+        ("Healthcare/Medical", ["health", "medical", "doctor", "hospital", "wellness"]),
+        ("Sports/Recreation", ["sport", "fitness", "yoga", "soccer", "basketball", "recreation"]),
+        ("Transportation", ["car", "bus", "train", "plane", "boat", "transport"]),
+        ("Backgrounds/Textures", ["background", "texture", "pattern", "wallpaper", "flat lay"]),
+        ("Signs/Symbols", ["sign", "symbol", "icon", "arrow", "flag", "logo"]),
+        ("Education", ["education", "school", "classroom", "book", "graduation"]),
+        ("Religion", ["religion", "religious", "spiritual", "worship", "temple"]),
+        ("Industrial", ["industrial", "factory", "construction", "mining", "tools"]),
+        ("Holidays", ["holiday", "christmas", "easter", "halloween", "ramadan", "vacation"]),
+        ("Arts", ["art", "painting", "drawing", "illustration", "artist"]),
+        ("Beauty/Fashion", ["fashion", "beauty", "makeup", "hairstyle", "clothing"]),
+        ("Vintage", ["vintage", "retro", "sepia", "kitsch"]),
+        ("Abstract", ["abstract", "fractal", "blur", "concept"]),
+        ("Objects", ["object", "still life", "tool", "item"]),
+    ]
+    matches: List[str] = []
+    for label, needles in rules:
+        if any(needle in text for needle in needles):
+            matches.append(label)
+        if len(matches) >= 2:
+            break
+
+    if not matches:
+        matches = ["Miscellaneous"]
+    return ", ".join(matches[:2])
 
 
 def fit_description_length(text: str) -> str:
@@ -402,8 +470,14 @@ def normalize_keywords(raw_keywords, desired_count: int) -> List[str]:
 
     normalized: List[str] = []
     seen = set()
+    articles = {"a", "an", "the"}
     for keyword in candidates:
-        cleaned = keyword.lower().strip().strip(".")
+        cleaned = keyword.lower().replace("_", " ")
+        cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
+        words = [w for w in cleaned.split(" ") if w and w not in articles]
+        if not words:
+            continue
+        cleaned = " ".join(words[:3])
         if not cleaned or cleaned in seen:
             continue
         seen.add(cleaned)
@@ -551,6 +625,13 @@ def platform_row(
             "title": description,
             "keywords": keywords,
             "category": category,
+        }
+    elif platform_key == "shutterstock":
+        base = {
+            "filename": filename,
+            "description": description,
+            "keywords": keywords,
+            "categories": infer_shutterstock_categories(title, description, keywords),
         }
     else:
         base = {

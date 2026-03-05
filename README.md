@@ -56,7 +56,7 @@ python fotoword.py --input /path/to/jpgs --out /path/to/out
   "platforms": {
     "adobe": ["Filename", "Title", "Keywords", "Category"],
     "dreamstime": ["filename", "title", "description", "keywords"],
-    "shutterstock": ["filename", "title", "description", "keywords"]
+    "shutterstock": ["Filename", "Description", "Keywords", "Categories"]
   }
 }
 ```
@@ -67,6 +67,11 @@ Adobe-specific mapping in current defaults:
 - `Title` <- generated description
 - `Keywords` <- generated keywords
 - `Category` <- generated Adobe category number (`1-21`)
+Shutterstock-specific mapping in current defaults:
+- `Filename` <- generated filename
+- `Description` <- generated description
+- `Keywords` <- generated keywords (comma-separated)
+- `Categories` <- 1-2 Shutterstock categories (comma-separated)
 
 ## Behavior Notes
 - Only `.jpg` and `.jpeg` files are processed.

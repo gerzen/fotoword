@@ -3,6 +3,6 @@
   "platforms": {
     "adobe": ["Filename", "Title", "Keywords", "Category"],
     "dreamstime": ["filename", "title", "description", "keywords"],
-    "shutterstock": ["filename", "title", "description", "keywords"]
+    "shutterstock": ["Filename", "Description", "Keywords", "Categories"]
   }
 }
