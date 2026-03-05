@@ -72,6 +72,7 @@ Adobe-specific mapping in current defaults:
 - Only `.jpg` and `.jpeg` files are processed.
 - `filename` column uses file basename only, not full path.
 - Keywords are normalized to lowercase, deduplicated, and capped to `--keywords`.
+- Descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes, then constrained to 175-200 characters.
 - If model output is invalid JSON, the tool retries once.
 - If Ollama is unreachable, the tool exits before writing CSV rows.
 - Failures on individual files are logged and processing continues.

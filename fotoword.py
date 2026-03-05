@@ -91,6 +91,74 @@ def infer_category(title: str, description: str, keywords_field: str) -> str:
     return "11"
 
 
+def fit_description_length(text: str) -> str:
+    text = " ".join(text.split()).strip()
+    if len(text) > 200:
+        cut = text[:200]
+        last_space = cut.rfind(" ")
+        text = cut[:last_space] if last_space > 150 else cut
+    while len(text) < 175:
+        pad = " for commercial and editorial stock usage"
+        if len(text) + len(pad) > 200:
+            text = (text + pad)[:200].rstrip()
+            break
+        text += pad
+    return text.rstrip(". ") + "."
+
+
+def pick_match(tokens: Sequence[str], options: Sequence[Tuple[str, Sequence[str]]], default: str) -> str:
+    for value, needles in options:
+        for t in tokens:
+            if any(n in t for n in needles):
+                return value
+    return default
+
+
+def build_structured_description(title: str, raw_description: str, keywords_field: str) -> str:
+    tokens = [t.strip().lower() for t in keywords_field.split(",") if t.strip()]
+    subject = " ".join(title.split()[:4]).strip() or "subject"
+
+    activity = pick_match(
+        tokens,
+        [
+            ("captured interacting naturally", ("play", "eat", "walk", "run", "rest", "graz", "fly", "swim")),
+            ("shown in a still moment", ("portrait", "closeup", "still", "pose")),
+            ("presented in a natural scene", ("nature", "wildlife", "outdoor")),
+        ],
+        "shown clearly in the frame",
+    )
+    location_type = pick_match(tokens, [("outdoor", ("outdoor", "nature", "wild", "park")), ("indoor", ("indoor", "interior", "studio", "room"))], "outdoor")
+    environment = pick_match(
+        tokens,
+        [
+            ("with snowy surroundings", ("snow", "winter", "ice")),
+            ("with urban surroundings", ("city", "street", "urban")),
+            ("in a natural environment", ("nature", "forest", "field", "water", "lake", "mountain")),
+        ],
+        "in a clean visual environment",
+    )
+    daytime = pick_match(tokens, [("daylight", ("day", "sunlight", "morning", "afternoon")), ("golden-hour light", ("sunset", "sunrise", "golden")), ("night light", ("night", "dark", "evening"))], "daylight")
+    mood = pick_match(tokens, [("calm", ("calm", "peaceful", "quiet")), ("warm", ("warm", "cozy", "friendly")), ("energetic", ("active", "energy", "dynamic"))], "natural")
+    purposes = pick_match(
+        tokens,
+        [
+            ("wildlife, conservation, and nature education content", ("animal", "bird", "wildlife", "nature")),
+            ("travel, outdoor, and lifestyle campaigns", ("travel", "landscape", "outdoor", "lifestyle")),
+            ("marketing, editorial, and web storytelling", ("business", "technology", "people", "city")),
+        ],
+        "marketing, editorial, and digital storytelling",
+    )
+
+    base = (
+        f"{subject} {activity} in an {location_type} setting, {environment}, under {daytime}, "
+        f"with a {mood} mood, suitable for {purposes}"
+    )
+    if raw_description.strip():
+        base = f"{base}, reflecting {raw_description.strip().rstrip('.')}"
+
+    return fit_description_length(base)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate stock metadata CSVs from local JPGs using Ollama.")
     parser.add_argument("--input", required=True, help="Directory containing JPG/JPEG files")
@@ -289,7 +357,7 @@ def build_prompt(filename: str, keyword_count: int, metadata_summary: str) -> st
         f"Return strict JSON only with keys: title, description, keywords, category. "
         f"keywords should be an array of up to {keyword_count} concise keyword strings. "
         f"category must be an integer from 1 to 21 using this mapping: {category_list}. "
-        "title should be 6-12 words. description should be one sentence. "
+        "title should be 6-12 words. description should be factual and concise. "
         f"Image filename: {filename}."
     )
     if metadata_summary:
@@ -380,6 +448,7 @@ def parse_partial_json_fields(text: str, desired_keywords: int) -> Tuple[str, st
         raise ValueError("Missing description")
     if not keyword_field:
         raise ValueError("Missing keywords")
+    description = build_structured_description(title, description, keyword_field)
     if not category:
         category = infer_category(title, description, keyword_field)
 
@@ -414,6 +483,7 @@ def parse_model_response(response_text: str, desired_keywords: int) -> Tuple[str
         raise ValueError("Missing keywords")
 
     keyword_field = ", ".join(keywords)
+    description = build_structured_description(title, description, keyword_field)
     if not category:
         category = infer_category(title, description, keyword_field)
     return title, description, keyword_field, category
@@ -425,7 +495,7 @@ def generate_metadata(
     ollama_url: str,
     keyword_count: int,
     timeout: int = 300,
-) -> Tuple[str, str, str]:
+) -> Tuple[str, str, str, str]:
     if requests is None:
         raise FotowordError("Missing dependency 'requests'. Install with: pip install -r requirements.txt")
     with image_path.open("rb") as f:
