@@ -536,7 +536,13 @@ def normalize_keywords(raw_keywords, desired_count: int) -> List[str]:
     for keyword in candidates:
         cleaned = keyword.lower().replace("_", " ")
         cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
-        words = [w for w in cleaned.split(" ") if w and w not in articles]
+        words: List[str] = []
+        seen_words = set()
+        for w in cleaned.split(" "):
+            if not w or w in articles or w in seen_words:
+                continue
+            seen_words.add(w)
+            words.append(w)
         if not words:
             continue
         cleaned = " ".join(words[:3])
