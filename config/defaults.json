@@ -2,7 +2,23 @@
   "ollama_url": "http://localhost:11434",
   "platforms": {
     "adobe": ["Filename", "Title", "Keywords", "Category"],
-    "dreamstime": ["filename", "title", "description", "keywords"],
+    "dreamstime": [
+      "Filename",
+      "Image Name",
+      "Description",
+      "Category 1",
+      "Category 2",
+      "Category 3",
+      "keywords",
+      "Free",
+      "W-EL",
+      "P-EL",
+      "SR-EL",
+      "SR-Price",
+      "Editorial",
+      "MR doc Ids",
+      "Pr Docs"
+    ],
     "shutterstock": ["Filename", "Description", "Keywords", "Categories"]
   }
 }

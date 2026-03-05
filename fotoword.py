@@ -626,6 +626,25 @@ def platform_row(
             "keywords": keywords,
             "category": category,
         }
+    elif platform_key == "dreamstime":
+        # Matches official Dreamstime spreadsheet header schema.
+        base = {
+            "filename": filename,
+            "image name": title,
+            "description": description,
+            "category 1": "0",
+            "category 2": "0",
+            "category 3": "0",
+            "keywords": keywords,
+            "free": "0",
+            "w-el": "0",
+            "p-el": "0",
+            "sr-el": "0",
+            "sr-price": "0",
+            "editorial": "0",
+            "mr doc ids": "",
+            "pr docs": "",
+        }
     elif platform_key == "shutterstock":
         base = {
             "filename": filename,

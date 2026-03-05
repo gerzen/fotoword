@@ -55,7 +55,23 @@ python fotoword.py --input /path/to/jpgs --out /path/to/out
   "ollama_url": "http://localhost:11434",
   "platforms": {
     "adobe": ["Filename", "Title", "Keywords", "Category"],
-    "dreamstime": ["filename", "title", "description", "keywords"],
+    "dreamstime": [
+      "Filename",
+      "Image Name",
+      "Description",
+      "Category 1",
+      "Category 2",
+      "Category 3",
+      "keywords",
+      "Free",
+      "W-EL",
+      "P-EL",
+      "SR-EL",
+      "SR-Price",
+      "Editorial",
+      "MR doc Ids",
+      "Pr Docs"
+    ],
     "shutterstock": ["Filename", "Description", "Keywords", "Categories"]
   }
 }
@@ -72,6 +88,11 @@ Shutterstock-specific mapping in current defaults:
 - `Description` <- generated description
 - `Keywords` <- generated keywords (comma-separated)
 - `Categories` <- 1-2 Shutterstock categories (comma-separated)
+Dreamstime-specific mapping in current defaults:
+- Uses official `Image_spreadsheet_template.xls` column order.
+- `Filename`, `Image Name`, `Description`, and `keywords` are filled from generated metadata.
+- `Category 1/2/3` currently default to `0` (no category selected yet).
+- Licensing/editorial flags default to `0`; document ID fields remain empty.
 
 ## Behavior Notes
 - Only `.jpg` and `.jpeg` files are processed.
