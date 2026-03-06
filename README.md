@@ -13,7 +13,9 @@ Local Python CLI for generating stock-photo metadata from JPGs using a local Oll
   - `adobe.csv`
   - `dreamstime.csv`
   - `shutterstock.csv`
-- Skip-existing mode enabled by default (based on existing `filename` values in output CSVs)
+- Writes central `metadata.csv` used as source of truth with columns:
+  `filename,title,description,keywords,category`
+- Skip-existing mode enabled by default (based on existing `filename` values in `metadata.csv`)
 
 ## Requirements
 - Python 3.9+
@@ -36,14 +38,34 @@ pip install -r requirements.txt
 python fotoword.py --input /path/to/jpgs --out /path/to/out
 ```
 
+Run in current folder (auto-scans `.` and writes to `./out`):
+
+```bash
+python /Users/benjamin.gerzen/IdeaProjects/personal/fotoword/fotoword.py
+```
+
+Install `fotoword` command for direct terminal use:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf /Users/benjamin.gerzen/IdeaProjects/personal/fotoword/fotoword ~/.local/bin/fotoword
+```
+
+Then ensure `~/.local/bin` is on your `PATH`, and run inside any picture folder:
+
+```bash
+fotoword
+```
+
 ### CLI Flags
-- `--input` (required): directory with JPG/JPEG files
-- `--out` (optional, default `./out`): output directory for CSVs
+- `--input` (optional, default `.`): directory with JPG/JPEG files
+- `--out` (optional, default `<input>/out`): output directory for CSVs
 - `--model` (optional, default `llava:7b`): Ollama model name
-- `--keywords` (optional, default `40`): target number of keywords
-- `--skip-existing` (default true): skip filenames already present in output CSVs
+- `--keywords` (optional, default `50`): target number of keywords
+- `--analysis-max-side` (optional, default `1536`): max width/height for resized analysis copy sent to model
+- `--skip-existing` (default true): skip filenames already present in `metadata.csv`
 - `--no-skip-existing`: disable skipping
-- `--config` (optional, default `config/defaults.json`): config path
+- `--config` (optional, default bundled `config/defaults.json`): config path
 - `--recursive` (optional): recurse into subdirectories
 - `--dry-run` (optional): print files to process and exit
 
@@ -91,13 +113,19 @@ Shutterstock-specific mapping in current defaults:
 Dreamstime-specific mapping in current defaults:
 - Uses official `Image_spreadsheet_template.xls` column order.
 - `Filename`, `Image Name`, `Description`, and `keywords` are filled from generated metadata.
+- `keywords` are exported as unique single-word terms only (max 50).
 - `Category 1/2/3` are auto-assigned numeric IDs based on the Dreamstime `Image Legend` category list (up to 3 IDs).
 - Licensing/editorial flags default to `0`; document ID fields remain empty.
 
 ## Behavior Notes
 - Only `.jpg` and `.jpeg` files are processed.
 - `filename` column uses file basename only, not full path.
+- Large images are resized to an analysis copy (max side `--analysis-max-side`) before sending to Ollama; originals are untouched.
 - Keywords are normalized to lowercase, deduplicated, and capped to `--keywords`.
+- To re-run recognition for a specific image, remove its row from `out/metadata.csv` and run `fotoword` again.
+- If a filename already exists in `metadata.csv`, `fotoword` reuses that metadata and rebuilds agency CSVs from it.
+- You can edit the `keywords` column in `metadata.csv` and rerun `fotoword` to update agency CSV outputs without re-running model inference.
+- Keywords use a 3-pass pipeline: pass1 generates 10 strong unique single words, pass2 adds emotional/creative terms excluding pass1 words (and retries if pass2 yields fewer than 15), and pass3 adds sensory terms (colors/sounds/scents) if still below target.
 - Descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes, then constrained to 175-200 characters.
 - If model output is invalid JSON, the tool retries once.
 - If Ollama is unreachable, the tool exits before writing CSV rows.
@@ -110,6 +138,6 @@ python fotoword.py \
   --input ./photos \
   --out ./out \
   --model llava:7b \
-  --keywords 40 \
+  --keywords 50 \
   --recursive
 ```

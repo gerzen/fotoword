@@ -2,6 +2,7 @@
 import argparse
 import base64
 import csv
+import io
 import json
 import re
 import sys
@@ -77,6 +78,14 @@ SHUTTERSTOCK_CATEGORIES = [
     "Technology",
     "Transportation",
     "Vintage",
+]
+DREAMSTIME_MAX_KEYWORDS = 50
+METADATA_HEADERS = [
+    "filename",
+    "title",
+    "description",
+    "keywords",
+    "category",
 ]
 DREAMSTIME_CATEGORY_RULES = [
     (168, ["animal", "bird", "duck", "dog", "cat", "wildlife", "pet", "insect"]),
@@ -221,6 +230,55 @@ def infer_dreamstime_categories(title: str, description: str, keywords_field: st
     return matches[0], matches[1], matches[2]
 
 
+def to_dreamstime_keywords(keywords_field: str, max_keywords: int = DREAMSTIME_MAX_KEYWORDS) -> str:
+    terms: List[str] = []
+    seen = set()
+    stop_words = {"a", "an", "the", "keyword", "keywords"}
+    for phrase in keywords_field.split(","):
+        for token in phrase.strip().split(" "):
+            word = re.sub(r"[^a-z0-9-]", "", token.lower().strip())
+            if not word or word in stop_words or word in seen:
+                continue
+            seen.add(word)
+            terms.append(word)
+            if len(terms) >= max_keywords:
+                return ", ".join(terms)
+    return ", ".join(terms)
+
+
+def description_words_fallback(description: str, existing_keywords: Sequence[str], desired_count: int) -> List[str]:
+    existing = set(existing_keywords)
+    words = re.findall(r"[a-z0-9-]+", description.lower())
+    stop_words = {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "with",
+        "by",
+        "at",
+        "from",
+        "keyword",
+        "keywords",
+    }
+    out: List[str] = []
+    seen = set()
+    for w in words:
+        if len(w) < 3 or w in stop_words or w in existing or w in seen:
+            continue
+        seen.add(w)
+        out.append(w)
+        if len(existing) + len(out) >= desired_count:
+            break
+    return out
+
+
 def fit_description_length(text: str) -> str:
     text = " ".join(text.split()).strip()
     if len(text) > 200:
@@ -291,10 +349,24 @@ def build_structured_description(title: str, raw_description: str, keywords_fiel
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate stock metadata CSVs from local JPGs using Ollama.")
-    parser.add_argument("--input", required=True, help="Directory containing JPG/JPEG files")
-    parser.add_argument("--out", default="./out", help="Output directory for platform CSV files")
+    parser.add_argument(
+        "--input",
+        default=".",
+        help="Directory containing JPG/JPEG files (default: current directory)",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Output directory for platform CSV files (default: <input>/out)",
+    )
     parser.add_argument("--model", default="llava:7b", help="Ollama model name")
-    parser.add_argument("--keywords", type=int, default=40, help="Number of keywords per image")
+    parser.add_argument("--keywords", type=int, default=50, help="Number of keywords per image")
+    parser.add_argument(
+        "--analysis-max-side",
+        type=int,
+        default=1536,
+        help="Max width/height in pixels for model analysis image (default: 1536)",
+    )
     parser.add_argument(
         "--timeout",
         type=int,
@@ -314,7 +386,11 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Do not skip images already present in output CSVs",
     )
-    parser.add_argument("--config", default="config/defaults.json", help="Path to config JSON")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to config JSON (default: bundled config/defaults.json)",
+    )
     parser.add_argument("--recursive", action="store_true", help="Recursively scan input directory")
     parser.add_argument("--dry-run", action="store_true", help="List files that would be processed")
     return parser.parse_args()
@@ -362,6 +438,10 @@ def csv_path_for_platform(out_dir: Path, platform: str) -> Path:
     return out_dir / f"{platform}.csv"
 
 
+def metadata_csv_path(out_dir: Path) -> Path:
+    return out_dir / "metadata.csv"
+
+
 def ensure_csv_with_header(path: Path, headers: Sequence[str]) -> None:
     if path.exists() and path.stat().st_size > 0:
         return
@@ -371,24 +451,62 @@ def ensure_csv_with_header(path: Path, headers: Sequence[str]) -> None:
         writer.writeheader()
 
 
-def load_existing_filenames(out_dir: Path, platforms: Dict[str, Sequence[str]]) -> Set[str]:
+def load_existing_filenames(out_dir: Path) -> Set[str]:
     seen: Set[str] = set()
-    for platform in platforms:
-        path = csv_path_for_platform(out_dir, platform)
-        if not path.exists() or path.stat().st_size == 0:
-            continue
-        with path.open("r", newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            if not reader.fieldnames:
-                continue
-            filename_col = next((col for col in reader.fieldnames if col and col.lower() == "filename"), None)
-            if not filename_col:
-                continue
-            for row in reader:
-                name = (row.get(filename_col) or "").strip()
-                if name:
-                    seen.add(name)
+    path = metadata_csv_path(out_dir)
+    if not path.exists() or path.stat().st_size == 0:
+        return seen
+
+    with path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            return seen
+        filename_col = next((col for col in reader.fieldnames if col and col.lower() == "filename"), None)
+        if not filename_col:
+            return seen
+        for row in reader:
+            name = (row.get(filename_col) or "").strip()
+            if name:
+                seen.add(name)
     return seen
+
+
+def load_metadata_map(out_dir: Path) -> Dict[str, Dict[str, str]]:
+    path = metadata_csv_path(out_dir)
+    result: Dict[str, Dict[str, str]] = {}
+    if not path.exists() or path.stat().st_size == 0:
+        return result
+
+    with path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            return result
+        filename_col = next((col for col in reader.fieldnames if col and col.lower() == "filename"), None)
+        if not filename_col:
+            return result
+        for row in reader:
+            name = (row.get(filename_col) or "").strip()
+            if not name:
+                continue
+            result[name] = {k: (v or "") for k, v in row.items()}
+    return result
+
+
+def normalized_metadata_row(filename: str, row: Dict[str, str]) -> Dict[str, str]:
+    generic_keywords = (
+        row.get("keywords")
+        or row.get("adobe_keywords")
+        or row.get("shutterstock_keywords")
+        or row.get("dreamstime_keywords")
+        or ""
+    ).strip()
+    return {
+        "filename": filename,
+        "title": (row.get("title") or "").strip(),
+        "description": (row.get("description") or "").strip(),
+        "keywords": generic_keywords,
+        "category": (row.get("category") or "").strip(),
+    }
 
 
 def extract_exif(image_path: Path) -> Dict[str, str]:
@@ -478,6 +596,33 @@ def summarize_metadata(exif_data: Dict[str, str], iptc_data: Dict[str, str]) -> 
     return " | ".join(parts)
 
 
+def build_analysis_image_bytes(image_path: Path, max_side: int) -> Tuple[bytes, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+    with image_path.open("rb") as f:
+        original = f.read()
+
+    if Image is None:
+        return original, None, None
+
+    if max_side <= 0:
+        return original, None, None
+
+    try:
+        with Image.open(io.BytesIO(original)) as img:
+            width, height = img.size
+            longest = max(width, height)
+            if longest <= max_side:
+                return original, (width, height), (width, height)
+
+            scale = max_side / float(longest)
+            new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+            resized = img.convert("RGB").resize(new_size, Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            resized.save(out, format="JPEG", quality=90, optimize=True)
+            return out.getvalue(), (width, height), new_size
+    except Exception:
+        return original, None, None
+
+
 def build_prompt(filename: str, keyword_count: int, metadata_summary: str) -> str:
     category_list = "; ".join(f"{k}={v}" for k, v in ADOBE_CATEGORIES.items())
     prompt = (
@@ -485,7 +630,7 @@ def build_prompt(filename: str, keyword_count: int, metadata_summary: str) -> st
         "Be factual and neutral. Avoid brands/trademarks. "
         "Do not include person names unless clearly visible in the image. "
         f"Return strict JSON only with keys: title, description, keywords, category. "
-        f"keywords should be an array of up to {keyword_count} concise keyword strings. "
+        f"keywords must be an array of exactly {keyword_count} strong, unique single-word keywords. "
         f"category must be an integer from 1 to 21 using this mapping: {category_list}. "
         "title should be 6-12 words. description should be factual and concise. "
         f"Image filename: {filename}."
@@ -532,7 +677,7 @@ def normalize_keywords(raw_keywords, desired_count: int) -> List[str]:
 
     normalized: List[str] = []
     seen = set()
-    articles = {"a", "an", "the"}
+    articles = {"a", "an", "the", "keyword", "keywords"}
     for keyword in candidates:
         cleaned = keyword.lower().replace("_", " ")
         cleaned = re.sub(r"\s+", " ", cleaned).strip().strip(".")
@@ -554,6 +699,140 @@ def normalize_keywords(raw_keywords, desired_count: int) -> List[str]:
             break
 
     return normalized
+
+
+def normalize_single_word_keywords(raw_keywords: Sequence[str], desired_count: int) -> List[str]:
+    items: List[str] = []
+    seen = set()
+    articles = {"a", "an", "the", "keyword", "keywords"}
+    for phrase in raw_keywords:
+        for token in phrase.split(" "):
+            word = re.sub(r"[^a-z0-9-]", "", token.lower().strip())
+            if not word or word in articles or word in seen:
+                continue
+            seen.add(word)
+            items.append(word)
+            if len(items) >= desired_count:
+                return items
+    return items
+
+
+def parse_keywords_only_response(response_text: str, desired_keywords: int) -> List[str]:
+    json_text = extract_json_block(response_text)
+    try:
+        payload = json.loads(json_text)
+        return normalize_keywords(payload.get("keywords", []), desired_keywords)
+    except json.JSONDecodeError:
+        # Fallback for malformed JSON: recover quoted strings and normalize.
+        raw_items = re.findall(r'"((?:[^"\\]|\\.)*)"', json_text)
+        decoded = [bytes(item, "utf-8").decode("unicode_escape") for item in raw_items]
+        return normalize_keywords(decoded, desired_keywords)
+
+
+def enrich_keywords(
+    image_b64: str,
+    model: str,
+    ollama_url: str,
+    existing_keywords: Sequence[str],
+    blacklist_keywords: Sequence[str],
+    missing_count: int,
+    metadata_summary: str,
+    timeout: int,
+) -> List[str]:
+    if missing_count <= 0:
+        return []
+
+    avoid_existing = ", ".join(existing_keywords)
+    avoid_blacklist = ", ".join(blacklist_keywords)
+    prompt = (
+        "You are refining stock-photo keywords. "
+        "Return strict JSON only with key: keywords. "
+        f"keywords must be an array of exactly {missing_count} concise keywords. "
+        "Each keyword must be unique, lowercase-friendly, and 1-3 words. "
+        "Prioritize emotional and creative stock keywords (mood, concept, storytelling, atmosphere, symbolic ideas) "
+        "that still fit the visible image content. "
+        f"Do not include any existing keywords: {avoid_existing}. "
+        f"Mandatory blacklist (first pass keywords): {avoid_blacklist}. "
+    )
+    if metadata_summary:
+        prompt += f"Metadata context (optional): {metadata_summary}. "
+
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "format": "json",
+        "images": [image_b64],
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+            "num_predict": 384,
+        },
+    }
+    url = ollama_url.rstrip("/") + "/api/generate"
+    for _ in range(2):
+        try:
+            response = requests.post(url, json=body, timeout=(10, timeout))
+            response.raise_for_status()
+            data = response.json()
+            raw_text = str(data.get("response", ""))
+            new_keywords = parse_keywords_only_response(raw_text, missing_count)
+            existing_set = set(existing_keywords)
+            return [k for k in new_keywords if k not in existing_set][:missing_count]
+        except (requests.RequestException, json.JSONDecodeError, ValueError):
+            continue
+    return []
+
+
+def enrich_keywords_with_synonyms(
+    image_b64: str,
+    model: str,
+    ollama_url: str,
+    existing_keywords: Sequence[str],
+    missing_count: int,
+    metadata_summary: str,
+    timeout: int,
+) -> List[str]:
+    if missing_count <= 0:
+        return []
+
+    existing = ", ".join(existing_keywords)
+    prompt = (
+        "You are expanding stock-photo keywords with close synonyms and semantically related terms, "
+        "plus sensory and descriptive terms grounded in the image. "
+        "Return strict JSON only with key: keywords. "
+        f"keywords must be an array of exactly {missing_count} concise keywords, 1-3 words each. "
+        "Prioritize likely colors, possible ambient sounds, and possible scents suggested by the scene, "
+        "plus related descriptive terms useful for stock search. "
+        f"Use these existing keywords as context: {existing}. "
+        f"Do not repeat any existing keywords: {existing}. "
+    )
+    if metadata_summary:
+        prompt += f"Metadata context (optional): {metadata_summary}. "
+
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "format": "json",
+        "images": [image_b64],
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+            "num_predict": 384,
+        },
+    }
+    url = ollama_url.rstrip("/") + "/api/generate"
+    for _ in range(2):
+        try:
+            response = requests.post(url, json=body, timeout=(10, timeout))
+            response.raise_for_status()
+            data = response.json()
+            raw_text = str(data.get("response", ""))
+            new_keywords = parse_keywords_only_response(raw_text, missing_count)
+            existing_set = set(existing_keywords)
+            return [k for k in new_keywords if k not in existing_set][:missing_count]
+        except (requests.RequestException, json.JSONDecodeError, ValueError):
+            continue
+    return []
 
 
 def parse_partial_json_fields(text: str, desired_keywords: int) -> Tuple[str, str, str, str]:
@@ -636,17 +915,24 @@ def generate_metadata(
     model: str,
     ollama_url: str,
     keyword_count: int,
+    analysis_max_side: int,
     timeout: int = 300,
 ) -> Tuple[str, str, str, str]:
     if requests is None:
         raise FotowordError("Missing dependency 'requests'. Install with: pip install -r requirements.txt")
-    with image_path.open("rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode("ascii")
+    analysis_bytes, original_size, analysis_size = build_analysis_image_bytes(image_path, analysis_max_side)
+    if original_size and analysis_size and original_size != analysis_size:
+        print(
+            f"{now_ts()} Analysis resize: {image_path.name} "
+            f"{original_size[0]}x{original_size[1]} -> {analysis_size[0]}x{analysis_size[1]}"
+        )
+    image_b64 = base64.b64encode(analysis_bytes).decode("ascii")
 
     exif_data = extract_exif(image_path)
     iptc_data = extract_iptc(image_path)
     metadata_summary = summarize_metadata(exif_data, iptc_data)
-    prompt = build_prompt(image_path.name, keyword_count, metadata_summary)
+    first_pass_target = min(10, keyword_count)
+    prompt = build_prompt(image_path.name, first_pass_target, metadata_summary)
 
     url = ollama_url.rstrip("/") + "/api/generate"
     body = {
@@ -668,7 +954,67 @@ def generate_metadata(
             response.raise_for_status()
             data = response.json()
             raw_text = str(data.get("response", ""))
-            return parse_model_response(raw_text, keyword_count)
+            title, description, keyword_field, category = parse_model_response(raw_text, first_pass_target)
+            pass1_raw = [k.strip() for k in keyword_field.split(",") if k.strip()]
+            keyword_list = normalize_single_word_keywords(pass1_raw, first_pass_target)
+            print(f"{now_ts()} Keywords pass1 ({len(keyword_list)}): {', '.join(keyword_list)}")
+            if len(keyword_list) < keyword_count:
+                missing = keyword_count - len(keyword_list)
+                pass2_extra = enrich_keywords(
+                    image_b64=image_b64,
+                    model=model,
+                    ollama_url=ollama_url,
+                    existing_keywords=keyword_list,
+                    blacklist_keywords=keyword_list,
+                    missing_count=missing,
+                    metadata_summary=metadata_summary,
+                    timeout=timeout,
+                )
+                if len(pass2_extra) < 15:
+                    pass2_retry = enrich_keywords(
+                        image_b64=image_b64,
+                        model=model,
+                        ollama_url=ollama_url,
+                        existing_keywords=keyword_list + pass2_extra,
+                        blacklist_keywords=keyword_list,
+                        missing_count=missing,
+                        metadata_summary=metadata_summary,
+                        timeout=timeout,
+                    )
+                    if pass2_retry:
+                        pass2_extra = normalize_keywords(pass2_extra + pass2_retry, missing)
+                print(f"{now_ts()} Keywords pass2 ({len(pass2_extra)}): {', '.join(pass2_extra)}")
+                merged = normalize_keywords(keyword_list + pass2_extra, keyword_count)
+                if len(merged) < keyword_count:
+                    missing_after_pass2 = keyword_count - len(merged)
+                    pass3_extra = enrich_keywords_with_synonyms(
+                        image_b64=image_b64,
+                        model=model,
+                        ollama_url=ollama_url,
+                        existing_keywords=merged,
+                        missing_count=missing_after_pass2,
+                        metadata_summary=metadata_summary,
+                        timeout=timeout,
+                    )
+                    print(f"{now_ts()} Keywords pass3 ({len(pass3_extra)}): {', '.join(pass3_extra)}")
+                    merged = normalize_keywords(merged + pass3_extra, keyword_count)
+                else:
+                    print(f"{now_ts()} Keywords pass3 (0): skipped (already reached target)")
+                if len(merged) < keyword_count:
+                    fallback_extra = description_words_fallback(description, merged, keyword_count)
+                    print(f"{now_ts()} Keywords fallback from description ({len(fallback_extra)}): {', '.join(fallback_extra)}")
+                    if fallback_extra:
+                        merged = normalize_keywords(merged + fallback_extra, keyword_count)
+                else:
+                    print(f"{now_ts()} Keywords fallback from description (0): skipped (already reached target)")
+                keyword_field = ", ".join(merged)
+                print(f"{now_ts()} Keywords final ({len(merged)}): {', '.join(merged)}")
+            else:
+                print(f"{now_ts()} Keywords pass2 (0): skipped (already reached target)")
+                print(f"{now_ts()} Keywords pass3 (0): skipped (already reached target)")
+                print(f"{now_ts()} Keywords final ({len(keyword_list)}): {', '.join(keyword_list)}")
+                keyword_field = ", ".join(keyword_list)
+            return title, description, keyword_field, category
         except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
             last_error = exc
 
@@ -697,6 +1043,7 @@ def platform_row(
     elif platform_key == "dreamstime":
         # Matches official Dreamstime spreadsheet header schema.
         c1, c2, c3 = infer_dreamstime_categories(title, description, keywords)
+        dreamstime_keywords_final = to_dreamstime_keywords(keywords)
         base = {
             "filename": filename,
             "image name": title,
@@ -704,7 +1051,7 @@ def platform_row(
             "category 1": c1,
             "category 2": c2,
             "category 3": c3,
-            "keywords": keywords,
+            "keywords": dreamstime_keywords_final,
             "free": "0",
             "w-el": "0",
             "p-el": "0",
@@ -749,12 +1096,40 @@ def open_writers(out_dir: Path, platforms: Dict[str, Sequence[str]]):
     return file_handles, writers
 
 
+def open_metadata_writer(out_dir: Path):
+    path = metadata_csv_path(out_dir)
+    ensure_csv_with_header(path, METADATA_HEADERS)
+    fh = path.open("a", newline="", encoding="utf-8")
+    writer = csv.DictWriter(fh, fieldnames=METADATA_HEADERS, extrasaction="ignore")
+    return fh, writer
+
+
+def write_platform_csv(path: Path, headers: Sequence[str], rows: Sequence[Dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(headers), extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def write_metadata_csv(out_dir: Path, metadata_map: Dict[str, Dict[str, str]]) -> None:
+    path = metadata_csv_path(out_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=METADATA_HEADERS, extrasaction="ignore")
+        writer.writeheader()
+        for filename in sorted(metadata_map.keys(), key=lambda s: s.lower()):
+            writer.writerow(normalized_metadata_row(filename, metadata_map[filename]))
+
+
 def run() -> int:
     args = parse_args()
 
+    script_dir = Path(__file__).resolve().parent
     input_dir = Path(args.input).expanduser().resolve()
-    out_dir = Path(args.out).expanduser().resolve()
-    config_path = Path(args.config).expanduser().resolve()
+    out_dir = Path(args.out).expanduser().resolve() if args.out else (input_dir / "out")
+    config_path = Path(args.config).expanduser().resolve() if args.config else (script_dir / "config" / "defaults.json")
 
     try:
         cfg = load_config(config_path)
@@ -765,8 +1140,8 @@ def run() -> int:
             raise FotowordError("--keywords must be > 0")
 
         images = scan_images(input_dir, args.recursive)
-        existing = load_existing_filenames(out_dir, platforms) if args.skip_existing else set()
-
+        metadata_map = load_metadata_map(out_dir)
+        existing = set(metadata_map.keys()) if args.skip_existing else set()
         to_process = [p for p in images if p.name not in existing]
 
         print(f"Found {len(images)} JPG(s); {len(existing)} existing; {len(to_process)} to process.")
@@ -776,43 +1151,69 @@ def run() -> int:
                 print(str(p))
             return 0
 
-        if not to_process:
-            print("No new files to process.")
-            return 0
-
-        check_ollama_available(ollama_url)
+        if to_process:
+            check_ollama_available(ollama_url)
 
         out_dir.mkdir(parents=True, exist_ok=True)
-        files, writers = open_writers(out_dir, platforms)
 
         processed = 0
-        skipped = len(images) - len(to_process)
+        reused = 0
         failed = 0
+        failed_names: Set[str] = set()
 
-        try:
-            for image_path in to_process:
-                try:
-                    print(f"{now_ts()} Starting: {image_path.name}")
-                    title, description, keywords, category = generate_metadata(
-                        image_path=image_path,
-                        model=args.model,
-                        ollama_url=ollama_url,
-                        keyword_count=args.keywords,
-                        timeout=args.timeout,
-                    )
-                    for platform, headers in platforms.items():
-                        row = platform_row(platform, image_path.name, headers, title, description, keywords, category)
-                        writers[platform].writerow(row)
-                    processed += 1
-                    print(f"{now_ts()} Processed: {image_path.name}")
-                except Exception as exc:
-                    failed += 1
-                    print(f"Failed: {image_path.name} ({exc})", file=sys.stderr)
-        finally:
-            for fh in files.values():
-                fh.close()
+        for image_path in images:
+            existing_row = metadata_map.get(image_path.name)
+            if existing_row and args.skip_existing:
+                reused += 1
+                continue
+            try:
+                print(f"{now_ts()} Starting: {image_path.name}")
+                title, description, keywords, category = generate_metadata(
+                    image_path=image_path,
+                    model=args.model,
+                    ollama_url=ollama_url,
+                    keyword_count=args.keywords,
+                    analysis_max_side=args.analysis_max_side,
+                    timeout=args.timeout,
+                )
+                metadata_map[image_path.name] = {
+                    "filename": image_path.name,
+                    "title": title,
+                    "description": description,
+                    "keywords": keywords,
+                    "category": category,
+                }
+                processed += 1
+                print(f"{now_ts()} Processed: {image_path.name}")
+            except Exception as exc:
+                failed += 1
+                failed_names.add(image_path.name)
+                print(f"Failed: {image_path.name} ({exc})", file=sys.stderr)
 
-        print(f"Summary: processed={processed}, skipped={skipped}, failed={failed}")
+        # Rebuild platform CSV files from metadata rows (including user-edited agency keywords).
+        platform_rows: Dict[str, List[Dict[str, str]]] = {p: [] for p in platforms}
+        for filename in sorted(metadata_map.keys(), key=lambda s: s.lower()):
+            if filename in failed_names:
+                continue
+            meta = normalized_metadata_row(filename, metadata_map[filename])
+            for platform, headers in platforms.items():
+                row = platform_row(
+                    platform=platform,
+                    filename=filename,
+                    headers=headers,
+                    title=meta["title"],
+                    description=meta["description"],
+                    keywords=meta["keywords"],
+                    category=meta["category"],
+                )
+                platform_rows[platform].append(row)
+
+        for platform, headers in platforms.items():
+            write_platform_csv(csv_path_for_platform(out_dir, platform), headers, platform_rows[platform])
+
+        write_metadata_csv(out_dir, metadata_map)
+
+        print(f"Summary: processed={processed}, reused={reused}, failed={failed}")
         return 0 if failed == 0 else 1
 
     except FotowordError as exc:
