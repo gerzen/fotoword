@@ -1,0 +1,2 @@
+class FotowordError(Exception):
+    pass

@@ -76,31 +76,13 @@ fotoword
 ```json
 {
   "ollama_url": "http://localhost:11434",
-  "platforms": {
-    "adobe": ["Filename", "Title", "Keywords", "Category"],
-    "dreamstime": [
-      "Filename",
-      "Image Name",
-      "Description",
-      "Category 1",
-      "Category 2",
-      "Category 3",
-      "keywords",
-      "Free",
-      "W-EL",
-      "P-EL",
-      "SR-EL",
-      "SR-Price",
-      "Editorial",
-      "MR doc Ids",
-      "Pr Docs"
-    ],
-    "shutterstock": ["Filename", "Description", "Keywords", "Categories"]
-  }
+  "agencies_dir": "agencies",
+  "agencies": ["adobe", "dreamstime", "shutterstock"]
 }
 ```
 
-Each platform gets its own CSV, and header order is controlled by this config.
+Each agency gets its own CSV, and header order is controlled by `config/agencies/<agency>.json`.
+Legacy config format with top-level `platforms` is still supported.
 Adobe-specific mapping in current defaults:
 - `Filename` <- generated filename
 - `Title` <- generated description
@@ -131,6 +113,14 @@ Dreamstime-specific mapping in current defaults:
 - If model output is invalid JSON, the tool retries once.
 - If Ollama is unreachable, the tool exits before writing CSV rows.
 - Failures on individual files are logged and processing continues.
+
+## Project Structure
+- `fotoword.py`: thin entrypoint
+- `fotoword_app/cli.py`: CLI parsing and run orchestration
+- `fotoword_app/engine.py`: shared image/model/CSV processing
+- `fotoword_app/config.py`: config loading and validation
+- `fotoword_app/agencies/`: agency-specific rules and row builders
+- `config/agencies/*.json`: per-agency output column config
 
 ## Example
 
