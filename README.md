@@ -13,9 +13,10 @@ Local Python CLI for generating stock-photo metadata from JPGs using a local Oll
   - `adobe.csv`
   - `dreamstime.csv`
   - `shutterstock.csv`
-- Writes central `metadata.csv` used as source of truth with columns:
+- Writes central `metadata.tsv` used as source of truth with columns:
   `filename,title,description,keywords,category`
-- Skip-existing mode enabled by default (based on existing `filename` values in `metadata.csv`)
+  using tab delimiter for spreadsheet-friendly import.
+- Skip-existing mode enabled by default (based on existing `filename` values in `metadata.tsv`)
 
 ## Requirements
 - Python 3.9+
@@ -63,7 +64,7 @@ fotoword
 - `--model` (optional, default `llava:7b`): Ollama model name
 - `--keywords` (optional, default `50`): target number of keywords
 - `--analysis-max-side` (optional, default `1536`): max width/height for resized analysis copy sent to model
-- `--skip-existing` (default true): skip filenames already present in `metadata.csv`
+- `--skip-existing` (default true): skip filenames already present in `metadata.tsv`
 - `--no-skip-existing`: disable skipping
 - `--config` (optional, default bundled `config/defaults.json`): config path
 - `--recursive` (optional): recurse into subdirectories
@@ -122,9 +123,9 @@ Dreamstime-specific mapping in current defaults:
 - `filename` column uses file basename only, not full path.
 - Large images are resized to an analysis copy (max side `--analysis-max-side`) before sending to Ollama; originals are untouched.
 - Keywords are normalized to lowercase, deduplicated, and capped to `--keywords`.
-- To re-run recognition for a specific image, remove its row from `out/metadata.csv` and run `fotoword` again.
-- If a filename already exists in `metadata.csv`, `fotoword` reuses that metadata and rebuilds agency CSVs from it.
-- You can edit the `keywords` column in `metadata.csv` and rerun `fotoword` to update agency CSV outputs without re-running model inference.
+- To re-run recognition for a specific image, remove its row from `out/metadata.tsv` and run `fotoword` again.
+- If a filename already exists in `metadata.tsv`, `fotoword` reuses that metadata and rebuilds agency CSVs from it.
+- You can edit the `keywords` column in `metadata.tsv` and rerun `fotoword` to update agency CSV outputs without re-running model inference.
 - Keywords use a 3-pass pipeline: pass1 generates 10 strong unique single words, pass2 adds emotional/creative terms excluding pass1 words (and retries if pass2 yields fewer than 15), and pass3 adds sensory terms (colors/sounds/scents) if still below target.
 - Descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes, then constrained to 175-200 characters.
 - If model output is invalid JSON, the tool retries once.

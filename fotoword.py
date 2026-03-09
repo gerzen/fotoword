@@ -439,15 +439,15 @@ def csv_path_for_platform(out_dir: Path, platform: str) -> Path:
 
 
 def metadata_csv_path(out_dir: Path) -> Path:
-    return out_dir / "metadata.csv"
+    return out_dir / "metadata.tsv"
 
 
-def ensure_csv_with_header(path: Path, headers: Sequence[str]) -> None:
+def ensure_csv_with_header(path: Path, headers: Sequence[str], delimiter: str = ",") -> None:
     if path.exists() and path.stat().st_size > 0:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(headers), extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=list(headers), extrasaction="ignore", delimiter=delimiter)
         writer.writeheader()
 
 
@@ -458,7 +458,7 @@ def load_existing_filenames(out_dir: Path) -> Set[str]:
         return seen
 
     with path.open("r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, delimiter="\t")
         if not reader.fieldnames:
             return seen
         filename_col = next((col for col in reader.fieldnames if col and col.lower() == "filename"), None)
@@ -478,7 +478,7 @@ def load_metadata_map(out_dir: Path) -> Dict[str, Dict[str, str]]:
         return result
 
     with path.open("r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, delimiter="\t")
         if not reader.fieldnames:
             return result
         filename_col = next((col for col in reader.fieldnames if col and col.lower() == "filename"), None)
@@ -1098,9 +1098,9 @@ def open_writers(out_dir: Path, platforms: Dict[str, Sequence[str]]):
 
 def open_metadata_writer(out_dir: Path):
     path = metadata_csv_path(out_dir)
-    ensure_csv_with_header(path, METADATA_HEADERS)
+    ensure_csv_with_header(path, METADATA_HEADERS, delimiter="\t")
     fh = path.open("a", newline="", encoding="utf-8")
-    writer = csv.DictWriter(fh, fieldnames=METADATA_HEADERS, extrasaction="ignore")
+    writer = csv.DictWriter(fh, fieldnames=METADATA_HEADERS, extrasaction="ignore", delimiter="\t")
     return fh, writer
 
 
@@ -1117,7 +1117,7 @@ def write_metadata_csv(out_dir: Path, metadata_map: Dict[str, Dict[str, str]]) -
     path = metadata_csv_path(out_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=METADATA_HEADERS, extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=METADATA_HEADERS, extrasaction="ignore", delimiter="\t")
         writer.writeheader()
         for filename in sorted(metadata_map.keys(), key=lambda s: s.lower()):
             writer.writerow(normalized_metadata_row(filename, metadata_map[filename]))
