@@ -113,7 +113,7 @@ def run() -> int:
                 continue
             try:
                 print(f"{now_ts()} Starting: {image_path.name}")
-                title, description, keywords, category = generate_metadata(
+                title, description, keywords, category, purpose = generate_metadata(
                     image_path=image_path,
                     model=args.model,
                     ollama_url=ollama_url,
@@ -127,6 +127,7 @@ def run() -> int:
                     "description": description,
                     "keywords": keywords,
                     "category": category,
+                    "purpose": purpose,
                 }
                 processed += 1
                 print(f"{now_ts()} Processed: {image_path.name}")
@@ -149,6 +150,7 @@ def run() -> int:
                     description=meta["description"],
                     keywords=meta["keywords"],
                     category=meta["category"],
+                    purpose=meta["purpose"],
                 )
                 platform_rows[platform].append(row)
 

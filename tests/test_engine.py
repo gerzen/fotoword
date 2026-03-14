@@ -19,6 +19,12 @@ class EngineBehaviorTests(unittest.TestCase):
         self.assertEqual(infer_usage_purpose("photo_ED.jpg"), "editorial")
         self.assertEqual(infer_usage_purpose("photo.jpg"), "commercial")
 
+    def test_infer_usage_purpose_from_metadata_keywords_when_filename_is_neutral(self) -> None:
+        self.assertEqual(infer_usage_purpose("photo.jpg", "nature, editorial, berlin"), "editorial")
+        self.assertEqual(infer_usage_purpose("photo.jpg", "nature, commercial, stock"), "commercial")
+        self.assertEqual(infer_usage_purpose("photo.jpg", "nature, editorial, commercial"), "commercial")
+        self.assertEqual(infer_usage_purpose("photo.jpg", "nature, city"), "commercial")
+
     def test_split_description_variants_preserves_removed_tail(self) -> None:
         text = (
             "A detailed commercial stock description with multiple clauses, carrying extra context, "
@@ -82,7 +88,7 @@ class EngineBehaviorTests(unittest.TestCase):
         self.assertIn("missing or unreadable capture date", logged_messages)
 
     def test_build_prompt_uses_remaining_editorial_character_budget(self) -> None:
-        prompt = build_prompt("scene_ED.jpg", 10, "IPTC: iptc_city: Berlin", 123)
+        prompt = build_prompt("scene_ED.jpg", 10, "IPTC: iptc_city: Berlin", 123, "editorial")
         self.assertIn("no longer than 123 characters", prompt)
         self.assertIn("Do not repeat city, country, date, or IPTC title text", prompt)
 

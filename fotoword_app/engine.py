@@ -137,11 +137,19 @@ def warn_metadata(filename: str, message: str) -> None:
     print(f"{now_ts()} Warning: {filename} - {message}")
 
 
-def infer_usage_purpose(filename: str) -> str:
+def infer_usage_purpose(filename: str, metadata_keywords: str = "") -> str:
     stem = Path(filename).stem.upper()
     if stem.endswith("_ED"):
         return "editorial"
     if stem.endswith("_CO"):
+        return "commercial"
+
+    keywords_text = f" {metadata_keywords.lower()} "
+    has_editorial = re.search(r"\beditorial\b", keywords_text) is not None
+    has_commercial = re.search(r"\bcommercial\b", keywords_text) is not None
+    if has_editorial and not has_commercial:
+        return "editorial"
+    if has_commercial and not has_editorial:
         return "commercial"
     return "commercial"
 
@@ -367,6 +375,7 @@ def normalized_metadata_row(filename: str, row: Dict[str, str]) -> Dict[str, str
         "description": (row.get("description") or "").strip(),
         "keywords": generic_keywords,
         "category": (row.get("category") or "").strip(),
+        "purpose": (row.get("purpose") or infer_usage_purpose(filename)).strip(),
     }
 
 
@@ -485,9 +494,8 @@ def build_analysis_image_bytes(image_path: Path, max_side: int) -> Tuple[bytes, 
         return original, None, None
 
 
-def build_prompt(filename: str, keyword_count: int, metadata_summary: str, description_limit: int) -> str:
+def build_prompt(filename: str, keyword_count: int, metadata_summary: str, description_limit: int, purpose: str) -> str:
     category_list = "; ".join(f"{k}={v}" for k, v in ADOBE_CATEGORIES.items())
-    purpose = infer_usage_purpose(filename)
     prompt = (
         "You are generating metadata for stock photography. "
         "Be factual and neutral. Avoid brands/trademarks. "
@@ -782,7 +790,7 @@ def generate_metadata(
     keyword_count: int,
     analysis_max_side: int,
     timeout: int = 300,
-) -> Tuple[str, str, str, str]:
+) -> Tuple[str, str, str, str, str]:
     if requests is None:
         raise FotowordError("Missing dependency 'requests'. Install with: pip install -r requirements.txt")
     analysis_bytes, original_size, analysis_size = build_analysis_image_bytes(image_path, analysis_max_side)
@@ -797,7 +805,7 @@ def generate_metadata(
     iptc_data = extract_iptc(image_path)
     metadata_summary = summarize_metadata(exif_data, iptc_data)
     first_pass_target = min(10, keyword_count)
-    purpose = infer_usage_purpose(image_path.name)
+    purpose = infer_usage_purpose(image_path.name, iptc_data.get("iptc_keywords", ""))
     description_budget = DESCRIPTION_LIMIT
     if purpose == "editorial":
         city = clean_sentence(iptc_data.get("iptc_city", "")) or "City"
@@ -809,7 +817,7 @@ def generate_metadata(
             editorial_date = "Month DD, YYYY"
         used_characters = len(f"{city}, {country} - {editorial_date}. {editorial_title}.")
         description_budget = max(0, DESCRIPTION_LIMIT - used_characters)
-    prompt = build_prompt(image_path.name, first_pass_target, metadata_summary, description_budget)
+    prompt = build_prompt(image_path.name, first_pass_target, metadata_summary, description_budget, purpose)
 
     url = ollama_url.rstrip("/") + "/api/generate"
     body = {
@@ -901,7 +909,7 @@ def generate_metadata(
                 print(f"{now_ts()} Keywords pass3 (0): skipped (already reached target)")
                 print(f"{now_ts()} Keywords final ({len(keyword_list)}): {', '.join(keyword_list)}")
                 keyword_field = ", ".join(keyword_list)
-            return title, description, keyword_field, category
+            return title, description, keyword_field, category, purpose
         except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
             last_error = exc
 
@@ -916,10 +924,11 @@ def platform_row(
     description: str,
     keywords: str,
     category: str,
+    purpose: Optional[str] = None,
 ) -> Dict[str, str]:
     platform_key = platform.lower()
     export_description = description
-    purpose = infer_usage_purpose(filename)
+    purpose = purpose or infer_usage_purpose(filename)
     if platform_key == "adobe":
         export_description = short_description_for_export(description)
         base = adobe_row(filename=filename, description=export_description, keywords=keywords, category=category)

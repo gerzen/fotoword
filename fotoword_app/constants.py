@@ -8,6 +8,7 @@ METADATA_HEADERS = [
     "description",
     "keywords",
     "category",
+    "purpose",
 ]
 
 DREAMSTIME_CATEGORY_RULES: List[Tuple[int, List[str]]] = [

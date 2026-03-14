@@ -14,7 +14,7 @@ Local Python CLI for generating stock-photo metadata from JPGs using a local Oll
   - `dreamstime.csv`
   - `shutterstock.csv`
 - Writes central `metadata.tsv` used as source of truth with columns:
-  `filename,title,description,keywords,category`
+  `filename,title,description,keywords,category,purpose`
   using tab delimiter for spreadsheet-friendly import.
 - Skip-existing mode enabled by default (based on existing `filename` values in `metadata.tsv`)
 
@@ -110,7 +110,7 @@ Dreamstime-specific mapping in current defaults:
 - If a filename already exists in `metadata.tsv`, `fotoword` reuses that metadata and rebuilds agency CSVs from it.
 - You can edit the `keywords` column in `metadata.tsv` and rerun `fotoword` to update agency CSV outputs without re-running model inference.
 - Keywords use a 3-pass pipeline: pass1 generates 10 strong unique single words, pass2 adds emotional/creative terms excluding pass1 words (and retries if pass2 yields fewer than 15), and pass3 adds sensory terms (colors/sounds/scents) if still below target.
-- Filenames ending in `_CO` are treated as commercial images; filenames ending in `_ED` are treated as editorial images. Other filenames default to commercial handling.
+- Filenames ending in `_CO` are treated as commercial images; filenames ending in `_ED` are treated as editorial images. If the filename is neutral, FotoWord falls back to IPTC keywords: `editorial` means editorial, `commercial` means commercial, and missing or ambiguous metadata falls back to commercial.
 - Commercial descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes. `metadata.tsv` keeps the full description; if the text would overflow 750 characters, it is shortened at the last comma before the limit for Adobe/Dreamstime exports and the removed tail is preserved in parentheses in the full metadata/Shutterstock version.
 - Editorial descriptions follow this template: `City, Country - Month DD, YYYY. IPTC Title. Model Description.` The city, country, and title come from IPTC metadata, the date comes from image metadata, and the model is prompted with the remaining character budget so the final description stays within 750 characters.
 - If model output is invalid JSON, the tool retries once.
