@@ -86,6 +86,46 @@ def fit_description_length(text: str) -> str:
     return text.rstrip(". ") + "."
 
 
+def split_description_variants(text: str, limit: int = 200) -> Tuple[str, str]:
+    normalized = " ".join(text.split()).strip().rstrip(". ")
+    if not normalized:
+        return "", ""
+
+    full_text = normalized + "."
+    if len(full_text) <= limit:
+        return full_text, full_text
+
+    cut = normalized[:limit]
+    last_comma = cut.rfind(",")
+    if last_comma == -1:
+        last_space = cut.rfind(" ")
+        split_at = last_space if last_space > 0 else len(cut)
+    else:
+        split_at = last_comma
+
+    short_main = normalized[:split_at].rstrip(" ,.")
+    removed_part = normalized[split_at + 1 :].strip(" ,.") if split_at < len(normalized) else ""
+
+    if not short_main:
+        short_main = normalized[:limit].rstrip(" ,.")
+        removed_part = normalized[len(short_main) :].strip(" ,.")
+
+    short_description = short_main.rstrip(". ") + "."
+    if not removed_part:
+        return short_description, short_description
+
+    full_description = f"{short_description} ({removed_part})"
+    return full_description, short_description
+
+
+def short_description_for_export(description: str) -> str:
+    text = " ".join(description.split()).strip()
+    match = re.match(r"^(.*?\.)\s+\((.*)\)\s*$", text)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
 def pick_match(tokens: Sequence[str], options: Sequence[Tuple[str, Sequence[str]]], default: str) -> str:
     for value, needles in options:
         for t in tokens:
@@ -159,7 +199,8 @@ def build_structured_description(title: str, raw_description: str, keywords_fiel
     if raw_description.strip():
         base = f"{base}, reflecting {raw_description.strip().rstrip('.')}"
 
-    return fit_description_length(base)
+    full_description, _ = split_description_variants(base)
+    return full_description
 
 
 def scan_images(input_dir: Path, recursive: bool) -> List[Path]:
@@ -740,11 +781,14 @@ def platform_row(
     category: str,
 ) -> Dict[str, str]:
     platform_key = platform.lower()
+    export_description = description
     if platform_key == "adobe":
-        base = adobe_row(filename=filename, description=description, keywords=keywords, category=category)
+        export_description = short_description_for_export(description)
+        base = adobe_row(filename=filename, description=export_description, keywords=keywords, category=category)
     elif platform_key == "dreamstime":
+        export_description = short_description_for_export(description)
         base = {"filename": filename}
-        base.update(dreamstime_row(title=title, description=description, keywords=keywords))
+        base.update(dreamstime_row(title=title, description=export_description, keywords=keywords))
     elif platform_key == "shutterstock":
         base = {"filename": filename}
         base.update(shutterstock_row(title=title, description=description, keywords=keywords))

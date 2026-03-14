@@ -109,7 +109,7 @@ Dreamstime-specific mapping in current defaults:
 - If a filename already exists in `metadata.tsv`, `fotoword` reuses that metadata and rebuilds agency CSVs from it.
 - You can edit the `keywords` column in `metadata.tsv` and rerun `fotoword` to update agency CSV outputs without re-running model inference.
 - Keywords use a 3-pass pipeline: pass1 generates 10 strong unique single words, pass2 adds emotional/creative terms excluding pass1 words (and retries if pass2 yields fewer than 15), and pass3 adds sensory terms (colors/sounds/scents) if still below target.
-- Descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes, then constrained to 175-200 characters.
+- Descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes. `metadata.tsv` keeps the full description; if the text would overflow 200 characters, it is shortened at the last comma before the limit for Adobe/Dreamstime exports and the removed tail is preserved in parentheses in the full metadata/Shutterstock version.
 - If model output is invalid JSON, the tool retries once.
 - If Ollama is unreachable, the tool exits before writing CSV rows.
 - Failures on individual files are logged and processing continues.
