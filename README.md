@@ -112,7 +112,7 @@ Dreamstime-specific mapping in current defaults:
 - Keywords use a 3-pass pipeline: pass1 generates 10 strong unique single words, pass2 adds emotional/creative terms excluding pass1 words (and retries if pass2 yields fewer than 15), and pass3 adds sensory terms (colors/sounds/scents) if still below target.
 - Filenames ending in `_CO` are treated as commercial images; filenames ending in `_ED` are treated as editorial images. Other filenames default to commercial handling.
 - Commercial descriptions are built in a fixed structure: subject(s) + activity + location type + environment + daytime + mood + purposes. `metadata.tsv` keeps the full description; if the text would overflow 750 characters, it is shortened at the last comma before the limit for Adobe/Dreamstime exports and the removed tail is preserved in parentheses in the full metadata/Shutterstock version.
-- Editorial descriptions follow this template: `City,Country - Month DD,YYYY. IPTC Title. Model Description.` The city, country, and title come from IPTC metadata, the date comes from image metadata, and the model is prompted with the remaining character budget so the final description stays within 750 characters.
+- Editorial descriptions follow this template: `City, Country - Month DD, YYYY. IPTC Title. Model Description.` The city, country, and title come from IPTC metadata, the date comes from image metadata, and the model is prompted with the remaining character budget so the final description stays within 750 characters.
 - If model output is invalid JSON, the tool retries once.
 - If Ollama is unreachable, the tool exits before writing CSV rows.
 - Failures on individual files are logged and processing continues.
