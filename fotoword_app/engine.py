@@ -919,16 +919,31 @@ def platform_row(
 ) -> Dict[str, str]:
     platform_key = platform.lower()
     export_description = description
+    purpose = infer_usage_purpose(filename)
     if platform_key == "adobe":
         export_description = short_description_for_export(description)
         base = adobe_row(filename=filename, description=export_description, keywords=keywords, category=category)
     elif platform_key == "dreamstime":
         export_description = short_description_for_export(description)
         base = {"filename": filename}
-        base.update(dreamstime_row(title=title, description=export_description, keywords=keywords))
+        base.update(
+            dreamstime_row(
+                title=title,
+                description=export_description,
+                keywords=keywords,
+                editorial="1" if purpose == "editorial" else "0",
+            )
+        )
     elif platform_key == "shutterstock":
         base = {"filename": filename}
-        base.update(shutterstock_row(title=title, description=description, keywords=keywords))
+        base.update(
+            shutterstock_row(
+                title=title,
+                description=description,
+                keywords=keywords,
+                editorial="yes" if purpose == "editorial" else "no",
+            )
+        )
     else:
         base = {
             "filename": filename,

@@ -38,7 +38,7 @@ def to_dreamstime_keywords(keywords_field: str, max_keywords: int = DREAMSTIME_M
     return ", ".join(terms)
 
 
-def dreamstime_row(title: str, description: str, keywords: str) -> Dict[str, str]:
+def dreamstime_row(title: str, description: str, keywords: str, editorial: str) -> Dict[str, str]:
     c1, c2, c3 = infer_dreamstime_categories(title, description, keywords)
     return {
         "image name": title,
@@ -52,7 +52,7 @@ def dreamstime_row(title: str, description: str, keywords: str) -> Dict[str, str
         "p-el": "0",
         "sr-el": "0",
         "sr-price": "0",
-        "editorial": "0",
+        "editorial": editorial,
         "mr doc ids": "",
         "pr docs": "",
     }

@@ -41,9 +41,10 @@ def infer_shutterstock_categories(title: str, description: str, keywords_field: 
     return ", ".join(matches[:2])
 
 
-def shutterstock_row(title: str, description: str, keywords: str) -> Dict[str, str]:
+def shutterstock_row(title: str, description: str, keywords: str, editorial: str) -> Dict[str, str]:
     return {
         "description": description,
         "keywords": keywords,
         "categories": infer_shutterstock_categories(title, description, keywords),
+        "editorial": editorial,
     }

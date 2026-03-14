@@ -98,7 +98,8 @@ Dreamstime-specific mapping in current defaults:
 - `Filename`, `Image Name`, `Description`, and `keywords` are filled from generated metadata.
 - `keywords` are exported as unique single-word terms only (max 50).
 - `Category 1/2/3` are auto-assigned numeric IDs based on the Dreamstime `Image Legend` category list (up to 3 IDs).
-- Licensing/editorial flags default to `0`; document ID fields remain empty.
+- `Editorial` is set to `1` for `_ED` images and `0` otherwise; other licensing flags default to `0`, and document ID fields remain empty.
+- Shutterstock exports include an `Editorial` column set to `yes` for `_ED` images and `no` otherwise.
 
 ## Behavior Notes
 - Only `.jpg` and `.jpeg` files are processed.
