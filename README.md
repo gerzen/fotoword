@@ -42,14 +42,14 @@ python fotoword.py --input /path/to/jpgs --out /path/to/out
 Run in current folder (auto-scans `.` and writes to `./out`):
 
 ```bash
-python /Users/benjamin.gerzen/IdeaProjects/personal/fotoword/fotoword.py
+python ./fotoword.py
 ```
 
 Install `fotoword` command for direct terminal use:
 
 ```bash
 mkdir -p ~/.local/bin
-ln -sf /Users/benjamin.gerzen/IdeaProjects/personal/fotoword/fotoword ~/.local/bin/fotoword
+ln -sf "$(pwd)/fotoword" ~/.local/bin/fotoword
 ```
 
 Then ensure `~/.local/bin` is on your `PATH`, and run inside any picture folder:
