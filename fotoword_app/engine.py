@@ -34,6 +34,9 @@ except Exception:
     IPTCInfo = None
 
 
+DESCRIPTION_LIMIT = 750
+
+
 def now_ts() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -86,7 +89,7 @@ def fit_description_length(text: str) -> str:
     return text.rstrip(". ") + "."
 
 
-def split_description_variants(text: str, limit: int = 200) -> Tuple[str, str]:
+def split_description_variants(text: str, limit: int = DESCRIPTION_LIMIT) -> Tuple[str, str]:
     normalized = " ".join(text.split()).strip().rstrip(". ")
     if not normalized:
         return "", ""
@@ -124,6 +127,19 @@ def short_description_for_export(description: str) -> str:
     if match:
         return match.group(1).strip()
     return text
+
+
+def clean_sentence(text: str) -> str:
+    return " ".join(text.split()).strip().rstrip(". ")
+
+
+def infer_usage_purpose(filename: str) -> str:
+    stem = Path(filename).stem.upper()
+    if stem.endswith("_ED"):
+        return "editorial"
+    if stem.endswith("_CO"):
+        return "commercial"
+    return "commercial"
 
 
 def pick_match(tokens: Sequence[str], options: Sequence[Tuple[str, Sequence[str]]], default: str) -> str:
@@ -201,6 +217,80 @@ def build_structured_description(title: str, raw_description: str, keywords_fiel
 
     full_description, _ = split_description_variants(base)
     return full_description
+
+
+def format_editorial_date(exif_data: Dict[str, str], iptc_data: Dict[str, str]) -> str:
+    raw_date = (
+        (iptc_data.get("iptc_date_created") or "").strip()
+        or (exif_data.get("DateTimeOriginal") or "").strip()
+        or (exif_data.get("DateTimeDigitized") or "").strip()
+        or (exif_data.get("DateTime") or "").strip()
+    )
+    if not raw_date:
+        raise ValueError("Missing image date for editorial description")
+
+    parsed: Optional[datetime] = None
+    for fmt in ("%Y%m%d", "%Y:%m:%d %H:%M:%S", "%Y:%m:%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(raw_date, fmt)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        raise ValueError(f"Unsupported image date format for editorial description: {raw_date}")
+    return parsed.strftime("%B %d,%Y")
+
+
+def build_editorial_description(
+    generated_title: str,
+    raw_description: str,
+    exif_data: Dict[str, str],
+    iptc_data: Dict[str, str],
+    limit: int = DESCRIPTION_LIMIT,
+) -> str:
+    city = clean_sentence(iptc_data.get("iptc_city", ""))
+    country = clean_sentence(iptc_data.get("iptc_country", ""))
+    if not city or not country:
+        raise ValueError("Missing IPTC city/country for editorial description")
+
+    editorial_title = clean_sentence(
+        iptc_data.get("iptc_title", "") or iptc_data.get("iptc_caption", "") or generated_title
+    )
+    if not editorial_title:
+        raise ValueError("Missing title for editorial description")
+
+    editorial_date = format_editorial_date(exif_data, iptc_data)
+    prefix = f"{city},{country} - {editorial_date}. {editorial_title}."
+    used_characters = len(prefix)
+    remaining_characters = max(0, limit - used_characters)
+
+    model_part = clean_sentence(raw_description)
+    if remaining_characters <= 0 or not model_part:
+        return prefix
+
+    if len(model_part) + 1 > remaining_characters:
+        allowed = max(0, remaining_characters - 1)
+        clipped = model_part[:allowed].rstrip(" ,.")
+        last_space = clipped.rfind(" ")
+        if last_space > max(30, allowed // 2):
+            clipped = clipped[:last_space].rstrip(" ,.")
+        model_part = clipped
+
+    return f"{prefix} {model_part}.".strip()
+
+
+def finalize_description(
+    filename: str,
+    title: str,
+    raw_description: str,
+    keywords_field: str,
+    exif_data: Dict[str, str],
+    iptc_data: Dict[str, str],
+) -> str:
+    purpose = infer_usage_purpose(filename)
+    if purpose == "editorial":
+        return build_editorial_description(title, raw_description, exif_data, iptc_data, DESCRIPTION_LIMIT)
+    return build_structured_description(title, raw_description, keywords_field)
 
 
 def scan_images(input_dir: Path, recursive: bool) -> List[Path]:
@@ -288,6 +378,8 @@ def extract_exif(image_path: Path) -> Dict[str, str]:
                 "ExposureTime",
                 "ISOSpeedRatings",
                 "DateTimeOriginal",
+                "DateTimeDigitized",
+                "DateTime",
             ]
 
             for key in wanted:
@@ -319,6 +411,12 @@ def extract_iptc(image_path: Path) -> Dict[str, str]:
         "caption/abstract": "iptc_caption",
         "object name": "iptc_title",
         "keywords": "iptc_keywords",
+        "city": "iptc_city",
+        "country/primary location name": "iptc_country",
+        "province/state": "iptc_state",
+        "sub-location": "iptc_sublocation",
+        "date created": "iptc_date_created",
+        "time created": "iptc_time_created",
     }
 
     for source_key, target_key in wanted.items():
@@ -375,8 +473,9 @@ def build_analysis_image_bytes(image_path: Path, max_side: int) -> Tuple[bytes, 
         return original, None, None
 
 
-def build_prompt(filename: str, keyword_count: int, metadata_summary: str) -> str:
+def build_prompt(filename: str, keyword_count: int, metadata_summary: str, description_limit: int) -> str:
     category_list = "; ".join(f"{k}={v}" for k, v in ADOBE_CATEGORIES.items())
+    purpose = infer_usage_purpose(filename)
     prompt = (
         "You are generating metadata for stock photography. "
         "Be factual and neutral. Avoid brands/trademarks. "
@@ -384,9 +483,17 @@ def build_prompt(filename: str, keyword_count: int, metadata_summary: str) -> st
         "Return strict JSON only with keys: title, description, keywords, category. "
         f"keywords must be an array of exactly {keyword_count} strong, unique single-word keywords. "
         f"category must be an integer from 1 to 21 using this mapping: {category_list}. "
-        "title should be 6-12 words. description should be factual and concise. "
+        "title should be 6-12 words. "
         f"Image filename: {filename}."
     )
+    if purpose == "editorial":
+        prompt += (
+            f" description should be factual, concise, and no longer than {description_limit} characters. "
+            "Do not repeat city, country, date, or IPTC title text because those will be added separately. "
+            "Write only the scene-specific editorial detail."
+        )
+    else:
+        prompt += f" description should be factual and concise, no longer than {description_limit} characters."
     if metadata_summary:
         prompt += f" Metadata context (may be incomplete): {metadata_summary}."
     return prompt
@@ -617,7 +724,6 @@ def parse_partial_json_fields(text: str, desired_keywords: int) -> Tuple[str, st
         raise ValueError("Missing description")
     if not keyword_field:
         raise ValueError("Missing keywords")
-    description = build_structured_description(title, description, keyword_field)
     if not category:
         category = infer_adobe_category(title, description, keyword_field)
 
@@ -652,7 +758,6 @@ def parse_model_response(response_text: str, desired_keywords: int) -> Tuple[str
         raise ValueError("Missing keywords")
 
     keyword_field = ", ".join(keywords)
-    description = build_structured_description(title, description, keyword_field)
     if not category:
         category = infer_adobe_category(title, description, keyword_field)
     return title, description, keyword_field, category
@@ -680,7 +785,23 @@ def generate_metadata(
     iptc_data = extract_iptc(image_path)
     metadata_summary = summarize_metadata(exif_data, iptc_data)
     first_pass_target = min(10, keyword_count)
-    prompt = build_prompt(image_path.name, first_pass_target, metadata_summary)
+    purpose = infer_usage_purpose(image_path.name)
+    description_budget = DESCRIPTION_LIMIT
+    if purpose == "editorial":
+        city = clean_sentence(iptc_data.get("iptc_city", ""))
+        country = clean_sentence(iptc_data.get("iptc_country", ""))
+        editorial_title = clean_sentence(iptc_data.get("iptc_title", "") or iptc_data.get("iptc_caption", ""))
+        if not city or not country or not editorial_title:
+            raise FotowordError(
+                f"Editorial image {image_path.name} requires IPTC city, country, and title/object name metadata."
+            )
+        try:
+            editorial_date = format_editorial_date(exif_data, iptc_data)
+        except ValueError as exc:
+            raise FotowordError(f"Editorial image {image_path.name} requires a readable capture date.") from exc
+        used_characters = len(f"{city},{country} - {editorial_date}. {editorial_title}.")
+        description_budget = max(0, DESCRIPTION_LIMIT - used_characters)
+    prompt = build_prompt(image_path.name, first_pass_target, metadata_summary, description_budget)
 
     url = ollama_url.rstrip("/") + "/api/generate"
     body = {
@@ -702,7 +823,15 @@ def generate_metadata(
             response.raise_for_status()
             data = response.json()
             raw_text = str(data.get("response", ""))
-            title, description, keyword_field, category = parse_model_response(raw_text, first_pass_target)
+            title, raw_description, keyword_field, category = parse_model_response(raw_text, first_pass_target)
+            description = finalize_description(
+                image_path.name,
+                title,
+                raw_description,
+                keyword_field,
+                exif_data,
+                iptc_data,
+            )
             pass1_raw = [k.strip() for k in keyword_field.split(",") if k.strip()]
             keyword_list = normalize_single_word_keywords(pass1_raw, first_pass_target)
             print(f"{now_ts()} Keywords pass1 ({len(keyword_list)}): {', '.join(keyword_list)}")
