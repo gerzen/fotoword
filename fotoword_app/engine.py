@@ -133,6 +133,10 @@ def clean_sentence(text: str) -> str:
     return " ".join(text.split()).strip().rstrip(". ")
 
 
+def warn_metadata(filename: str, message: str) -> None:
+    print(f"{now_ts()} Warning: {filename} - {message}")
+
+
 def infer_usage_purpose(filename: str) -> str:
     stem = Path(filename).stem.upper()
     if stem.endswith("_ED"):
@@ -238,29 +242,37 @@ def format_editorial_date(exif_data: Dict[str, str], iptc_data: Dict[str, str]) 
             continue
     if parsed is None:
         raise ValueError(f"Unsupported image date format for editorial description: {raw_date}")
-    return parsed.strftime("%B %d,%Y")
+    return parsed.strftime("%B %d, %Y")
 
 
 def build_editorial_description(
+    filename: str,
     generated_title: str,
     raw_description: str,
     exif_data: Dict[str, str],
     iptc_data: Dict[str, str],
     limit: int = DESCRIPTION_LIMIT,
 ) -> str:
-    city = clean_sentence(iptc_data.get("iptc_city", ""))
-    country = clean_sentence(iptc_data.get("iptc_country", ""))
-    if not city or not country:
-        raise ValueError("Missing IPTC city/country for editorial description")
+    city = clean_sentence(iptc_data.get("iptc_city", "")) or "City"
+    country = clean_sentence(iptc_data.get("iptc_country", "")) or "Country"
+    if city == "City":
+        warn_metadata(filename, "missing IPTC city, using placeholder 'City'")
+    if country == "Country":
+        warn_metadata(filename, "missing IPTC country, using placeholder 'Country'")
 
     editorial_title = clean_sentence(
         iptc_data.get("iptc_title", "") or iptc_data.get("iptc_caption", "") or generated_title
     )
     if not editorial_title:
-        raise ValueError("Missing title for editorial description")
+        editorial_title = "IPTC Title"
+        warn_metadata(filename, "missing IPTC title/caption, using placeholder 'IPTC Title'")
 
-    editorial_date = format_editorial_date(exif_data, iptc_data)
-    prefix = f"{city},{country} - {editorial_date}. {editorial_title}."
+    try:
+        editorial_date = format_editorial_date(exif_data, iptc_data)
+    except ValueError:
+        editorial_date = "Month DD, YYYY"
+        warn_metadata(filename, "missing or unreadable capture date, using placeholder 'Month DD, YYYY'")
+    prefix = f"{city}, {country} - {editorial_date}. {editorial_title}."
     used_characters = len(prefix)
     remaining_characters = max(0, limit - used_characters)
 
@@ -289,7 +301,7 @@ def finalize_description(
 ) -> str:
     purpose = infer_usage_purpose(filename)
     if purpose == "editorial":
-        return build_editorial_description(title, raw_description, exif_data, iptc_data, DESCRIPTION_LIMIT)
+        return build_editorial_description(filename, title, raw_description, exif_data, iptc_data, DESCRIPTION_LIMIT)
     return build_structured_description(title, raw_description, keywords_field)
 
 
@@ -788,18 +800,14 @@ def generate_metadata(
     purpose = infer_usage_purpose(image_path.name)
     description_budget = DESCRIPTION_LIMIT
     if purpose == "editorial":
-        city = clean_sentence(iptc_data.get("iptc_city", ""))
-        country = clean_sentence(iptc_data.get("iptc_country", ""))
-        editorial_title = clean_sentence(iptc_data.get("iptc_title", "") or iptc_data.get("iptc_caption", ""))
-        if not city or not country or not editorial_title:
-            raise FotowordError(
-                f"Editorial image {image_path.name} requires IPTC city, country, and title/object name metadata."
-            )
+        city = clean_sentence(iptc_data.get("iptc_city", "")) or "City"
+        country = clean_sentence(iptc_data.get("iptc_country", "")) or "Country"
+        editorial_title = clean_sentence(iptc_data.get("iptc_title", "") or iptc_data.get("iptc_caption", "")) or "IPTC Title"
         try:
             editorial_date = format_editorial_date(exif_data, iptc_data)
-        except ValueError as exc:
-            raise FotowordError(f"Editorial image {image_path.name} requires a readable capture date.") from exc
-        used_characters = len(f"{city},{country} - {editorial_date}. {editorial_title}.")
+        except ValueError:
+            editorial_date = "Month DD, YYYY"
+        used_characters = len(f"{city}, {country} - {editorial_date}. {editorial_title}.")
         description_budget = max(0, DESCRIPTION_LIMIT - used_characters)
     prompt = build_prompt(image_path.name, first_pass_target, metadata_summary, description_budget)
 
