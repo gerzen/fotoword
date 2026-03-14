@@ -7,6 +7,7 @@ from fotoword_app.engine import (
     build_prompt,
     format_editorial_date,
     infer_usage_purpose,
+    parse_model_response,
     platform_row,
     short_description_for_export,
     split_description_variants,
@@ -124,6 +125,12 @@ class EngineBehaviorTests(unittest.TestCase):
         self.assertEqual(dreamstime_row["Editorial"], "1")
         self.assertEqual(shutterstock_row["Editorial"], "yes")
         self.assertNotIn("Editorial", adobe_row)
+
+    def test_parse_model_response_raises_clear_error_when_keywords_are_missing(self) -> None:
+        response = '{"title":"Street art scene","description":"Urban wall with layered posters","category":11}'
+
+        with self.assertRaisesRegex(ValueError, "failed to generate keywords"):
+            parse_model_response(response, 5)
 
     def test_editorial_description_respects_character_limit(self) -> None:
         long_raw_description = "word " * 400

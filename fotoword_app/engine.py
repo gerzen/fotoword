@@ -739,11 +739,11 @@ def parse_partial_json_fields(text: str, desired_keywords: int) -> Tuple[str, st
             category = candidate
 
     if not title:
-        raise ValueError("Missing title")
+        raise ValueError("The Ollama model failed to generate title")
     if not description:
-        raise ValueError("Missing description")
+        raise ValueError("The Ollama model failed to generate description")
     if not keyword_field:
-        raise ValueError("Missing keywords")
+        raise ValueError("The Ollama model failed to generate keywords")
     if not category:
         category = infer_adobe_category(title, description, keyword_field)
 
@@ -775,7 +775,7 @@ def parse_model_response(response_text: str, desired_keywords: int) -> Tuple[str
     if not description:
         raise ValueError("Missing description")
     if not keywords:
-        raise ValueError("Missing keywords")
+        raise ValueError("The Ollama model failed to generate keywords")
 
     keyword_field = ", ".join(keywords)
     if not category:
