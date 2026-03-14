@@ -5,6 +5,7 @@ from fotoword_app.engine import (
     DESCRIPTION_LIMIT,
     build_editorial_description,
     build_prompt,
+    finalize_description,
     format_editorial_date,
     infer_usage_purpose,
     parse_model_response,
@@ -92,6 +93,27 @@ class EngineBehaviorTests(unittest.TestCase):
         prompt = build_prompt("scene_ED.jpg", 10, "IPTC: iptc_city: Berlin", 123, "editorial")
         self.assertIn("no longer than 123 characters", prompt)
         self.assertIn("Do not repeat city, country, date, or IPTC title text", prompt)
+
+    def test_finalize_description_uses_resolved_editorial_purpose_for_neutral_filename(self) -> None:
+        description = finalize_description(
+            filename="20260307-152547-DSC_6381_ST.jpg",
+            title="Wall with Stickers",
+            raw_description="Street wall covered with stickers near a posted restriction sign",
+            keywords_field="berlin, editorial, stickers",
+            exif_data={},
+            iptc_data={
+                "iptc_title": "Wall Covered with Stickers and Photo and Video Restriction Sign.",
+                "iptc_keywords": "Berlin, editorial, modern art",
+                "iptc_date_created": "20260307",
+            },
+            purpose="editorial",
+        )
+
+        self.assertEqual(
+            description,
+            "City, Country - March 07, 2026. Wall Covered with Stickers and Photo and Video Restriction Sign. "
+            "Street wall covered with stickers near a posted restriction sign.",
+        )
 
     def test_platform_row_sets_editorial_flags_per_agency(self) -> None:
         dreamstime_row = platform_row(

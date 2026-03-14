@@ -306,8 +306,9 @@ def finalize_description(
     keywords_field: str,
     exif_data: Dict[str, str],
     iptc_data: Dict[str, str],
+    purpose: Optional[str] = None,
 ) -> str:
-    purpose = infer_usage_purpose(filename)
+    purpose = purpose or infer_usage_purpose(filename, iptc_data.get("iptc_keywords", ""))
     if purpose == "editorial":
         return build_editorial_description(filename, title, raw_description, exif_data, iptc_data, DESCRIPTION_LIMIT)
     return build_structured_description(title, raw_description, keywords_field)
@@ -847,6 +848,7 @@ def generate_metadata(
                 keyword_field,
                 exif_data,
                 iptc_data,
+                purpose=purpose,
             )
             pass1_raw = [k.strip() for k in keyword_field.split(",") if k.strip()]
             keyword_list = normalize_single_word_keywords(pass1_raw, first_pass_target)
