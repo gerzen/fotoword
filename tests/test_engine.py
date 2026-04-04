@@ -2,7 +2,9 @@ import unittest
 from unittest.mock import patch
 
 from fotoword_app.engine import (
+    ADOBE_TITLE_LIMIT,
     DESCRIPTION_LIMIT,
+    adobe_title_for_export,
     build_editorial_description,
     build_prompt,
     finalize_description,
@@ -147,6 +149,22 @@ class EngineBehaviorTests(unittest.TestCase):
         self.assertEqual(dreamstime_row["Editorial"], "1")
         self.assertEqual(shutterstock_row["Editorial"], "yes")
         self.assertNotIn("Editorial", adobe_row)
+        self.assertEqual(adobe_row["Title"], "Scene description.")
+
+    def test_adobe_title_for_export_truncates_at_last_period_or_comma_within_limit(self) -> None:
+        description = (
+            "A very long stock description sentence that keeps building context for the Adobe export title. "
+            "It adds another clause with city details and weather notes and scene atmosphere and architectural context "
+            "and pedestrian movement and reflective surfaces and soft light beyond the allowed Adobe title length."
+        )
+
+        adobe_title = adobe_title_for_export(description)
+
+        self.assertLessEqual(len(adobe_title), ADOBE_TITLE_LIMIT)
+        self.assertEqual(
+            adobe_title,
+            "A very long stock description sentence that keeps building context for the Adobe export title.",
+        )
 
     def test_parse_model_response_raises_clear_error_when_keywords_are_missing(self) -> None:
         response = '{"title":"Street art scene","description":"Urban wall with layered posters","category":11}'

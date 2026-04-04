@@ -35,6 +35,7 @@ except Exception:
 
 
 DESCRIPTION_LIMIT = 750
+ADOBE_TITLE_LIMIT = 200
 
 
 def now_ts() -> str:
@@ -127,6 +128,29 @@ def short_description_for_export(description: str) -> str:
     if match:
         return match.group(1).strip()
     return text
+
+
+def adobe_title_for_export(description: str, limit: int = ADOBE_TITLE_LIMIT) -> str:
+    text = short_description_for_export(description)
+    if len(text) <= limit:
+        return text
+
+    cut = text[:limit]
+    last_period = cut.rfind(".")
+    last_comma = cut.rfind(",")
+    split_at = max(last_period, last_comma)
+
+    if split_at > 0:
+        shortened = cut[: split_at + 1].strip()
+        if shortened.endswith(","):
+            return shortened.rstrip(" ,") + "."
+        return shortened
+
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        return cut[:last_space].rstrip(" ,.") + "."
+
+    return cut.rstrip(" ,.") + "."
 
 
 def clean_sentence(text: str) -> str:
@@ -932,7 +956,7 @@ def platform_row(
     export_description = description
     purpose = purpose or infer_usage_purpose(filename)
     if platform_key == "adobe":
-        export_description = short_description_for_export(description)
+        export_description = adobe_title_for_export(description)
         base = adobe_row(filename=filename, description=export_description, keywords=keywords, category=category)
     elif platform_key == "dreamstime":
         export_description = short_description_for_export(description)
